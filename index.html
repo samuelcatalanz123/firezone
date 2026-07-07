@@ -115,6 +115,7 @@
     <button class="act" id="weaponBtn"><span><span class="em">🔫</span><br><b id="wname">Pistola</b></span></button>
     <button class="act" id="nadeBtn"><span class="em">💣</span><span class="cool" id="nadeCool"></span></button>
     <button class="act" id="carBtn"><span class="em">🚗</span></button>
+    <button class="act" id="missileBtn"><span class="em">🚀</span><span class="cool" id="missileCool"></span></button>
   </div>
 
   <div id="brand">FIRE ZONE · de <b>SAMUEL</b></div>
@@ -130,7 +131,8 @@
       <b>Tu ejército</b>: 20 soldados + 10 tanques + 10 aviones + 10 camiones te protegen. 🪖<br>
       <b>Mundo infinito</b> 🌍: corre a donde sea. Súbete a un <b>coche</b> 🚗 para huir y atropellar.<br>
       Entra en <b>casas y ciudades</b> 🏙️ para cubrirte (las balas no te alcanzan).<br>
-      ¡Defiéndete de los <b>ZOMBIES</b> 🧟 y de tanques, aviones (con <b>misiles</b> 🚀) y camiones!<br>
+      ¡Defiéndete de los <b>ZOMBIES</b> 🧟 y de <b>MONSTRUOS gigantes</b>: zombi gigante, <b>dino zombi</b> 🦖 y <b>dragón zombi</b> 🐉!<br>
+      Tú también lanzas <b>misiles</b> con el botón 🚀. ¡Tanques, aviones y camiones enemigos atacan también!<br>
       Mares 🌊, volcanes 🌋 y personas por el mundo.<br>
       <b>Móvil:</b> arrastra <b>un dedo</b> para huir y esconderte en casas, árboles, rocas y montañas.<br>
       <b>PC:</b> muévete con <b>WASD</b> o flechas.<br>
@@ -324,7 +326,7 @@ let state = 'menu';
 // se inicializan vacías para que dibujar la portada nunca falle (antes de empezar)
 let player=null, bullets=[], ebullets=[], enemies=[], items=[], grenades=[],
     particles=[], shocks=[], flashes=[], allies=[], vehicles=[], fleet=[], missiles=[];
-let score, wave, kills, best, nadeReady, lastTime;
+let score, wave, kills, best, nadeReady, lastTime, missileReady=0;
 
 best = loadBest();
 
@@ -334,7 +336,7 @@ function newGame(){
   camX=0; camY=0;
   bullets=[]; ebullets=[]; enemies=[]; items=[]; grenades=[]; particles=[]; shocks=[]; flashes=[];
   vehicles=[]; fleet=[]; missiles=[]; FRIENDS=[];
-  score=0; wave=0; kills=0; nadeReady=0;
+  score=0; wave=0; kills=0; nadeReady=0; missileReady=0;
   buildObstacles(); buildDecor(); spawnCivilians();
   spawnVehicles();
   spawnWave();
@@ -395,6 +397,21 @@ function makeBoss(){
   const [x,y]=edgePos();
   return {x,y,kind:'boss',r:46,spd:0.75+wave*0.02,hp:600+wave*130,maxhp:600+wave*130,
           color:'#ff2e88',dmg:28,shooter:true,val:300+wave*20,lastShot:0,ang:0,boss:true};
+}
+// ---------- MONSTRUOS GIGANTES (zombi gigante, dino zombi, dragón zombi) ----------
+function makeMonster(mtype){
+  const [x,y]=edgePos();
+  const e={x,y,kind:mtype,ang:0,lastShot:0,monster:true,mtype};
+  if(mtype==='zgigante'){ e.r=54; e.spd=1.0+wave*0.02; e.hp=1300+wave*110; e.color='#5f8a3a'; e.dmg=42; e.shooter=false; e.val=250; e.zombie=true; }
+  else if(mtype==='dino'){ e.r=50; e.spd=1.9+wave*0.03; e.hp=1600+wave*140; e.color='#6f9a3a'; e.dmg=58; e.shooter=false; e.val=350; }
+  else { e.r=52; e.spd=2.7+wave*0.03; e.hp=1300+wave*120; e.color='#7a4a8a'; e.dmg=0; e.shooter=true; e.val=450; e.fly=true; e.fire=true; e.dragon=true; }
+  e.maxhp=e.hp; return e;
+}
+function monsterPool(){
+  const pool=['zgigante'];
+  if(wave>=4) pool.push('dino');
+  if(wave>=6) pool.push('dragon');
+  return pool;
 }
 // ---------- compañeros (escuadrón) ----------
 const SQUAD = 20;
@@ -492,6 +509,15 @@ function spawnWave(){
       enemies.push(makeEnemy(kind));
     }
     if(wave>1) SFX.wave();
+  }
+  // MONSTRUOS GIGANTES: aparecen desde la oleada 3, y garantizado en oleadas de jefe
+  const pool=monsterPool();
+  if(wave>=3 && Math.random()<0.55){
+    enemies.push(makeMonster(pool[(Math.random()*pool.length)|0]));
+    banner('¡MONSTRUO!'); SFX.boss(); addShake(7);
+  }
+  if(wave%5===0){
+    enemies.push(makeMonster(pool[(Math.random()*pool.length)|0]));
   }
 }
 
@@ -628,6 +654,13 @@ $('weaponBtn').onclick=()=>{ if(state!=='playing')return;
   player.wi=(player.wi+1)%WEAPONS.length; $('wname').textContent=WEAPONS[player.wi].name; };
 $('nadeBtn').onclick=()=>{ if(state==='playing') throwNade(performance.now()); };
 $('carBtn').onclick=()=>{ if(state==='playing') toggleVehicle(); };
+$('missileBtn').onclick=()=>{ if(state==='playing') firePlayerMissile(performance.now()); };
+function firePlayerMissile(now){
+  if(now<missileReady) return;
+  missileReady=now+1500;
+  missiles.push(makeMissile(player.x+Math.cos(player.ang)*player.r, player.y+Math.sin(player.ang)*player.r, player.ang, true));
+  SFX.nade(); addShake(2);
+}
 // instalar como app (PWA)
 let deferredPrompt=null;
 addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredPrompt=e; });
@@ -721,12 +754,14 @@ function update(now, dt){
     const d=Math.hypot(tgt.x-e.x,tgt.y-e.y);
     e.ang=a;
     if(e.fly){
-      // aviones enemigos: vuelan por encima de todo y lanzan MISILES teledirigidos
+      // vuelan por encima de todo. Aviones: misiles. Dragones: fuego 🔥
       e.x+=Math.cos(a)*e.spd*f; e.y+=Math.sin(a)*e.spd*f;
-      if(now-e.lastShot>1300 && d<660){
+      const rate=e.dragon?1000:1300;
+      if(now-e.lastShot>rate && d<(e.dragon?560:660)){
         e.lastShot=now;
-        missiles.push(makeMissile(e.x,e.y,a,false));
-        spawnFlash(e.x+Math.cos(a)*e.r,e.y+Math.sin(a)*e.r,a,1.0,'#ffb04a');
+        if(e.fire){ for(let k=-1;k<=1;k++){ const aa=a+k*0.20; ebullets.push({x:e.x,y:e.y,vx:Math.cos(aa)*6,vy:Math.sin(aa)*6,r:10,dmg:16,color:'#ff7a2a'}); } }
+        else missiles.push(makeMissile(e.x,e.y,a,false));
+        spawnFlash(e.x+Math.cos(a)*e.r,e.y+Math.sin(a)*e.r,a,e.dragon?1.5:1.0,e.dragon?'#ff7a2a':'#ffb04a');
       }
     } else if(e.shooter){
       if(d>280) stepEnemy(e, a, e.spd, f);
@@ -845,6 +880,7 @@ function update(now, dt){
   // cooldown granada (UI)
   const cd=clamp((nadeReady-now)/2600,0,1);
   $('nadeCool').style.transform=`scaleY(${cd})`;
+  $('missileCool').style.transform=`scaleY(${clamp((missileReady-now)/1500,0,1)})`;
 
   for(const al of allies){ if(al.alive && al.hp<=0){ al.alive=false;
     for(let i=0;i<16;i++) particles.push(mkPart(al.x,al.y,'#3a86ff')); } }
@@ -1015,6 +1051,60 @@ function drawVehicle(x,y,ang,type,color,r){
   }
   ctx.restore();
 }
+// dinosaurio zombi (T-rex visto desde arriba)
+function drawDino(x,y,ang,r,color){
+  const dk='#3f5a24';
+  ctx.save(); ctx.translate(x,y);
+  ctx.fillStyle='rgba(0,0,0,.34)'; ctx.beginPath(); ctx.ellipse(0,0,r*1.5,r*1.0,0,0,TAU); ctx.fill();
+  ctx.rotate(ang);
+  ctx.strokeStyle='rgba(0,0,0,.5)'; ctx.lineWidth=3;
+  // cola
+  ctx.fillStyle=color; ctx.beginPath();
+  ctx.moveTo(-r*0.5,-r*0.2); ctx.lineTo(-r*1.7,0); ctx.lineTo(-r*0.5,r*0.2); ctx.closePath(); ctx.fill();
+  // patas
+  ctx.fillStyle=dk; rrfill(-r*0.15,-r*0.95,r*0.34,r*0.4,4); rrfill(-r*0.15,r*0.55,r*0.34,r*0.4,4);
+  // cuerpo
+  ctx.fillStyle=color; ctx.beginPath(); ctx.ellipse(0,0,r*0.95,r*0.72,0,0,TAU); ctx.fill(); ctx.stroke();
+  // manchas zombi
+  ctx.fillStyle=dk; ctx.beginPath(); ctx.arc(-r*0.2,-r*0.2,r*0.18,0,TAU); ctx.arc(r*0.2,r*0.25,r*0.14,0,TAU); ctx.fill();
+  // cabeza
+  ctx.fillStyle=color; ctx.beginPath(); ctx.ellipse(r*0.95,0,r*0.55,r*0.45,0,0,TAU); ctx.fill(); ctx.stroke();
+  // mandíbula abierta
+  ctx.fillStyle='#3a1416'; ctx.beginPath(); ctx.moveTo(r*1.55,0); ctx.lineTo(r*1.05,-r*0.3); ctx.lineTo(r*1.05,r*0.3); ctx.closePath(); ctx.fill();
+  // dientes
+  ctx.fillStyle='#fff';
+  for(let k=-2;k<=2;k++){ ctx.beginPath(); ctx.moveTo(r*(1.15+0.06*Math.abs(k)),k*r*0.11-2); ctx.lineTo(r*1.28,k*r*0.11); ctx.lineTo(r*(1.15+0.06*Math.abs(k)),k*r*0.11+2); ctx.closePath(); ctx.fill(); }
+  // ojo brillante
+  ctx.fillStyle='#ffdc3c'; ctx.beginPath(); ctx.arc(r*0.95,-r*0.22,r*0.1,0,TAU); ctx.fill();
+  ctx.restore();
+}
+// dragón zombi (visto desde arriba, con alas y fuego)
+function drawDragon(x,y,ang,r,color){
+  const wing='#5a3a6a', dk='#3a2448';
+  ctx.save(); ctx.translate(x,y);
+  ctx.fillStyle='rgba(0,0,0,.32)'; ctx.beginPath(); ctx.ellipse(0,0,r*1.7,r*1.1,0,0,TAU); ctx.fill();
+  ctx.rotate(ang);
+  ctx.strokeStyle='rgba(0,0,0,.5)'; ctx.lineWidth=3;
+  // alas
+  ctx.fillStyle=wing;
+  ctx.beginPath(); ctx.moveTo(0,-r*0.2); ctx.lineTo(-r*0.5,-r*1.7); ctx.lineTo(r*0.7,-r*1.2); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0,r*0.2); ctx.lineTo(-r*0.5,r*1.7); ctx.lineTo(r*0.7,r*1.2); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // cola
+  ctx.fillStyle=color; ctx.beginPath(); ctx.moveTo(-r*0.5,-r*0.16); ctx.lineTo(-r*1.9,0); ctx.lineTo(-r*0.5,r*0.16); ctx.closePath(); ctx.fill();
+  // cuerpo
+  ctx.beginPath(); ctx.ellipse(0,0,r*0.85,r*0.55,0,0,TAU); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=dk; ctx.beginPath(); ctx.arc(-r*0.15,0,r*0.2,0,TAU); ctx.fill();
+  // cabeza con cuernos
+  ctx.fillStyle=color; ctx.beginPath(); ctx.ellipse(r*0.9,0,r*0.42,r*0.34,0,0,TAU); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=dk; ctx.beginPath(); ctx.moveTo(r*0.8,-r*0.3); ctx.lineTo(r*1.0,-r*0.6); ctx.lineTo(r*1.05,-r*0.28); ctx.closePath();
+  ctx.moveTo(r*0.8,r*0.3); ctx.lineTo(r*1.0,r*0.6); ctx.lineTo(r*1.05,r*0.28); ctx.closePath(); ctx.fill();
+  // ojos
+  ctx.fillStyle='#ff3a3a'; ctx.beginPath(); ctx.arc(r*1.0,-r*0.14,r*0.08,0,TAU); ctx.arc(r*1.0,r*0.14,r*0.08,0,TAU); ctx.fill();
+  // fuego en la boca
+  ctx.fillStyle='#ff8c2b'; ctx.beginPath(); ctx.arc(r*1.35,0,r*0.16,0,TAU); ctx.fill();
+  ctx.fillStyle='#ffdc3c'; ctx.beginPath(); ctx.arc(r*1.38,0,r*0.08,0,TAU); ctx.fill();
+  ctx.restore();
+}
 // longitud del cañón por arma (para colocar el destello en la punta)
 function gunLen(s,gun){
   if(gun==='Escopeta')return s*1.55;
@@ -1105,18 +1195,21 @@ function draw(now){
   }
   // enemigos (soldados y máquinas de guerra)
   for(const e of enemies){
-    if(e.boss){
-      const pulse = e.r*1.5 + Math.sin(now/160)*5;
-      ctx.beginPath(); ctx.arc(e.x,e.y,pulse,0,TAU);
-      ctx.fillStyle='rgba(255,46,136,.14)'; ctx.fill();
+    if(e.boss || e.monster){
+      const pulse = e.r*1.4 + Math.sin(now/160)*6;
+      const aura = e.dragon?'rgba(150,80,210,.18)' : e.monster?'rgba(120,220,80,.16)' : 'rgba(255,46,136,.14)';
+      ctx.beginPath(); ctx.arc(e.x,e.y,pulse,0,TAU); ctx.fillStyle=aura; ctx.fill();
     }
-    if(e.veh) drawVehicle(e.x, e.y, e.ang||0, e.veh, e.color, e.r);
+    if(e.mtype==='dino') drawDino(e.x, e.y, e.ang||0, e.r, e.color);
+    else if(e.mtype==='dragon') drawDragon(e.x, e.y, e.ang||0, e.r, e.color);
+    else if(e.veh) drawVehicle(e.x, e.y, e.ang||0, e.veh, e.color, e.r);
     else if(e.zombie) drawHuman(e.x, e.y, e.ang||0, e.r, ZOMBIE_PAL, null);
     else drawHuman(e.x, e.y, e.ang||0, e.r, ENEMY_PAL[e.kind], ENEMY_PAL[e.kind].gun);
     // barra vida
-    if(e.hp<e.maxhp){ const w=e.boss?220:e.r*2.2, bx=e.x-w/2, by=e.y-e.r*1.5-(e.boss?18:10);
-      ctx.fillStyle='#3a1420'; ctx.fillRect(bx,by,w,e.boss?8:5);
-      ctx.fillStyle=e.boss?'#ff2e88':'#46dc78'; ctx.fillRect(bx,by,w*clamp(e.hp/e.maxhp,0,1),e.boss?8:5); }
+    const big=e.boss||e.monster;
+    if(e.hp<e.maxhp){ const w=big?220:e.r*2.2, bx=e.x-w/2, by=e.y-e.r*1.5-(big?18:10);
+      ctx.fillStyle='#3a1420'; ctx.fillRect(bx,by,w,big?8:5);
+      ctx.fillStyle=e.boss?'#ff2e88':(e.monster?'#8fe04a':'#46dc78'); ctx.fillRect(bx,by,w*clamp(e.hp/e.maxhp,0,1),big?8:5); }
   }
   // compañeros (azules)
   for(const al of allies){
