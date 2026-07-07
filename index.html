@@ -114,6 +114,7 @@
   <div id="actions">
     <button class="act" id="weaponBtn"><span><span class="em">🔫</span><br><b id="wname">Pistola</b></span></button>
     <button class="act" id="nadeBtn"><span class="em">💣</span><span class="cool" id="nadeCool"></span></button>
+    <button class="act" id="carBtn"><span class="em">🚗</span></button>
   </div>
 
   <div id="brand">FIRE ZONE · de <b>SAMUEL</b></div>
@@ -126,6 +127,8 @@
     <button class="cta" id="playBtn">Jugar</button>
     <div class="help">
       <b>Luchas con 20 compañeros</b> 🔵 que te siguen. ¡Disparáis solos al enemigo más cercano!<br>
+      <b>Mundo infinito</b> 🌍: corre a donde sea. Súbete a un <b>coche</b> 🚗 para huir a toda velocidad (¡y atropellar!).<br>
+      Enemigos: soldados, tanques de guerra, aviones y camiones.<br>
       <b>Móvil:</b> arrastra <b>un dedo</b> para huir y esconderte en casas, árboles, rocas y montañas.<br>
       <b>PC:</b> muévete con <b>WASD</b> o flechas.<br>
       Botones a la derecha: cambiar arma 🔫 y lanzar granada 💣.
@@ -163,7 +166,7 @@ function saveBest(v){ try{ localStorage.setItem('firezone_best', String(v)); }ca
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
 let W = 0, H = 0, DPR = 1;
-let shakeAmt = 0;
+let shakeAmt = 0, camX = 0, camY = 0;
 const REDUCED = !!(typeof window!=='undefined' && window.matchMedia &&
   window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 function addShake(a){ if(!REDUCED) shakeAmt = Math.min(shakeAmt + a, 12); }
@@ -220,26 +223,34 @@ const SFX = {
 
 // ---------- obstáculos ----------
 let obstacles = [];
+const COVER_TYPES=['casa','arbol','arbol','roca','roca','montana'];
+function randomCover(cx,cy){
+  const m=Math.min(W,H);
+  const type=COVER_TYPES[(Math.random()*COVER_TYPES.length)|0];
+  const fw = type==='montana'?0.19 : type==='casa'?0.15 : type==='roca'?0.10 : 0.12;
+  const s=m*fw;
+  return { x:cx-s/2, y:cy-s/2, w:s, h:s, type };
+}
+// esparce escondites por el mundo (alrededor del jugador)
 function buildObstacles(){
-  const m = Math.min(W,H);
-  // cada objeto es un escondite: casa, arbol, roca o montaña (huella cuadrada)
-  const O = (fx,fy,fw,type)=>({ x:W*fx - m*fw/2, y:H*fy - m*fw/2, w:m*fw, h:m*fw, type });
-  obstacles = [
-    O(0.13,0.14,0.15,'casa'),
-    O(0.87,0.82,0.15,'casa'),
-    O(0.50,0.11,0.20,'montana'),
-    O(0.89,0.40,0.18,'montana'),
-    O(0.11,0.78,0.17,'montana'),
-    O(0.31,0.30,0.11,'arbol'),
-    O(0.70,0.24,0.11,'arbol'),
-    O(0.24,0.60,0.11,'arbol'),
-    O(0.76,0.62,0.11,'arbol'),
-    O(0.44,0.82,0.10,'arbol'),
-    O(0.15,0.42,0.10,'roca'),
-    O(0.62,0.80,0.09,'roca'),
-    O(0.50,0.72,0.09,'roca'),
-    O(0.83,0.16,0.09,'roca'),
-  ];
+  obstacles=[];
+  const px=(typeof player==='object'&&player)?player.x:0, py=(typeof player==='object'&&player)?player.y:0;
+  const R=Math.max(W,H);
+  for(let i=0;i<22;i++){
+    const a=Math.random()*TAU, d=rnd(150, R*1.05);
+    obstacles.push(randomCover(px+Math.cos(a)*d, py+Math.sin(a)*d));
+  }
+}
+// los que quedan muy lejos reaparecen delante → sensación de mundo infinito
+function recycleObstacles(){
+  const despawn=Math.max(W,H)*1.3, spawn=Math.max(W,H)*0.95;
+  for(let i=0;i<obstacles.length;i++){
+    const o=obstacles[i], ocx=o.x+o.w/2, ocy=o.y+o.h/2;
+    if((ocx-player.x)**2+(ocy-player.y)**2 > despawn*despawn){
+      const a=Math.random()*TAU, d=spawn+rnd(0,260);
+      obstacles[i]=randomCover(player.x+Math.cos(a)*d, player.y+Math.sin(a)*d);
+    }
+  }
 }
 function hitsObstacle(x,y,r){
   for(const o of obstacles){
@@ -248,9 +259,9 @@ function hitsObstacle(x,y,r){
   return false;
 }
 function resolveMove(x,y,dx,dy,r){
-  let nx = clamp(x+dx, r, W-r);
+  let nx = x+dx;                    // sin límites: el mundo es infinito
   if(hitsObstacle(nx,y,r)) nx = x;
-  let ny = clamp(y+dy, r, H-r);
+  let ny = y+dy;
   if(hitsObstacle(nx,ny,r)) ny = y;
   return [nx,ny];
 }
@@ -281,34 +292,70 @@ const BUFFS = {
 let state = 'menu';
 // se inicializan vacías para que dibujar la portada nunca falle (antes de empezar)
 let player=null, bullets=[], ebullets=[], enemies=[], items=[], grenades=[],
-    particles=[], shocks=[], flashes=[], allies=[];
+    particles=[], shocks=[], flashes=[], allies=[], vehicles=[];
 let score, wave, kills, best, nadeReady, lastTime;
 
 best = loadBest();
 
 function newGame(){
-  player = { x:W/2, y:H/2, r:18, hp:100, maxhp:100, ang:0, wi:0,
-             lastShot:0, buffs:{} };
-  bullets=[]; ebullets=[]; enemies=[]; items=[]; grenades=[]; particles=[]; shocks=[]; flashes=[];
+  player = { x:0, y:0, r:18, hp:100, maxhp:100, ang:0, wi:0,
+             lastShot:0, buffs:{}, veh:null };
+  camX=0; camY=0;
+  bullets=[]; ebullets=[]; enemies=[]; items=[]; grenades=[]; particles=[]; shocks=[]; flashes=[]; vehicles=[];
   score=0; wave=0; kills=0; nadeReady=0;
+  buildObstacles();
+  spawnVehicles();
   spawnWave();
   updateHUD();
 }
 
+// ---------- vehículos (coche / camión para huir) ----------
+const VEH_TYPES=['coche','coche','camion'];
+function makeVehicle(cx,cy){
+  const type=VEH_TYPES[(Math.random()*VEH_TYPES.length)|0];
+  return { x:cx, y:cy, r:type==='camion'?26:20, type, ang:Math.random()*TAU };
+}
+function spawnVehicles(){
+  vehicles=[]; const R=Math.max(W,H);
+  for(let i=0;i<4;i++){ const a=Math.random()*TAU, d=rnd(190,R*0.9);
+    vehicles.push(makeVehicle(player.x+Math.cos(a)*d, player.y+Math.sin(a)*d)); }
+}
+function recycleVehicles(){
+  const despawn=Math.max(W,H)*1.4, spawn=Math.max(W,H)*0.95;
+  for(let i=0;i<vehicles.length;i++){ const v=vehicles[i];
+    if((v.x-player.x)**2+(v.y-player.y)**2 > despawn*despawn){
+      const a=Math.random()*TAU, d=spawn+rnd(0,280);
+      vehicles[i]=makeVehicle(player.x+Math.cos(a)*d, player.y+Math.sin(a)*d); }
+  }
+}
+function toggleVehicle(){
+  if(player.veh){                       // bajarse
+    const v=player.veh; v.x=player.x+Math.cos(player.ang)*46; v.y=player.y+Math.sin(player.ang)*46;
+    vehicles.push(v); player.veh=null; banner('A PIE');
+  } else {                              // subirse al más cercano
+    let best=-1, bd=80*80;
+    for(let i=0;i<vehicles.length;i++){ const v=vehicles[i];
+      const dd=(v.x-player.x)**2+(v.y-player.y)**2; if(dd<bd){bd=dd;best=i;} }
+    if(best>=0){ player.veh=vehicles[best]; vehicles.splice(best,1); banner('🚗 EN MARCHA'); SFX.pickup(); }
+    else banner('NO HAY COCHE CERCA');
+  }
+}
+
 // ---------- oleadas y enemigos ----------
 function edgePos(){
-  const s = (Math.random()*4)|0;
-  if(s===0) return [rnd(0,W), -30];
-  if(s===1) return [rnd(0,W), H+30];
-  if(s===2) return [-30, rnd(0,H)];
-  return [W+30, rnd(0,H)];
+  // aparecen en un anillo alrededor del jugador (justo fuera de la pantalla)
+  const a=Math.random()*TAU, R=Math.max(W,H)*0.62 + rnd(0,180);
+  return [player.x+Math.cos(a)*R, player.y+Math.sin(a)*R];
 }
 function makeEnemy(kind){
   const [x,y]=edgePos();
   const e={x,y,kind,ang:0,lastShot:0};
-  if(kind==='runner'){ e.r=15; e.spd=1.7+wave*0.05; e.hp=28+wave*5; e.color='#eb5a5a'; e.dmg=8; e.shooter=false; e.val=10; }
-  else if(kind==='tank'){ e.r=27; e.spd=0.9+wave*0.03; e.hp=120+wave*14; e.color='#8f2828'; e.dmg=18; e.shooter=false; e.val=40; }
-  else { e.r=18; e.spd=1.2+wave*0.03; e.hp=44+wave*6; e.color='#b478f0'; e.dmg=0; e.shooter=true; e.val=20; }
+  if(kind==='runner'){ e.r=15; e.spd=2.1+wave*0.05; e.hp=28+wave*5; e.color='#eb5a5a'; e.dmg=8; e.shooter=false; e.val=10; }
+  else if(kind==='tank'){ e.r=27; e.spd=1.2+wave*0.03; e.hp=120+wave*14; e.color='#8f2828'; e.dmg=18; e.shooter=false; e.val=40; }
+  else if(kind==='guerra'){ e.r=30; e.spd=1.0+wave*0.02; e.hp=220+wave*22; e.color='#5c6b3a'; e.dmg=26; e.shooter=true; e.val=70; e.veh='tanque'; e.shell=true; }
+  else if(kind==='camion'){ e.r=26; e.spd=2.9+wave*0.05; e.hp=95+wave*9; e.color='#7a6a44'; e.dmg=18; e.shooter=false; e.val=35; e.veh='camion'; }
+  else if(kind==='avion'){ e.r=24; e.spd=3.6+wave*0.05; e.hp=70+wave*6; e.color='#9aa4b6'; e.dmg=0; e.shooter=true; e.val=45; e.veh='avion'; e.fly=true; }
+  else { e.r=18; e.spd=1.6+wave*0.03; e.hp=44+wave*6; e.color='#b478f0'; e.dmg=0; e.shooter=true; e.val=20; }
   e.maxhp=e.hp; return e;
 }
 function makeBoss(){
@@ -352,8 +399,12 @@ function spawnWave(){
     for(let i=0;i<n;i++){
       const roll=Math.random();
       let kind='runner';
-      if(wave>=3 && roll<0.25) kind='tank';
-      else if(wave>=2 && roll<0.55) kind='shooter';
+      if(wave>=4 && roll<0.09) kind='guerra';        // tanque de guerra
+      else if(wave>=3 && roll<0.20) kind='avion';    // avión
+      else if(wave>=2 && roll<0.33) kind='camion';   // camión
+      else if(wave>=3 && roll<0.45) kind='tank';     // soldado pesado
+      else if(wave>=2 && roll<0.70) kind='shooter';  // tirador
+      else kind='runner';                            // soldado
       enemies.push(makeEnemy(kind));
     }
     if(wave>1) SFX.wave();
@@ -492,6 +543,7 @@ $('muteBtn').onclick=()=>{ muted=!muted; $('muteBtn').textContent=muted?'🔇':'
 $('weaponBtn').onclick=()=>{ if(state!=='playing')return;
   player.wi=(player.wi+1)%WEAPONS.length; $('wname').textContent=WEAPONS[player.wi].name; };
 $('nadeBtn').onclick=()=>{ if(state==='playing') throwNade(performance.now()); };
+$('carBtn').onclick=()=>{ if(state==='playing') toggleVehicle(); };
 // instalar como app (PWA)
 let deferredPrompt=null;
 addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredPrompt=e; });
@@ -531,13 +583,20 @@ function banner(t){ bannerTxt=t; bannerUntil=performance.now()+1600; }
 // ---------- bucle ----------
 function update(now, dt){
   const f = clamp(dt/16.67, 0.2, 3);
-  // movimiento jugador
+  const cull2 = (Math.max(W,H)*1.35)**2;
+  // movimiento jugador (más rápido; en coche/camión vuela)
   let mdx=0,mdy=0;
   if(move.id!==null){ const [vx,vy]=stickVec(move); mdx=vx; mdy=vy; }
   if(keys['w']||keys['arrowup'])mdy-=1; if(keys['s']||keys['arrowdown'])mdy+=1;
   if(keys['a']||keys['arrowleft'])mdx-=1; if(keys['d']||keys['arrowright'])mdx+=1;
   const mag=Math.hypot(mdx,mdy);
-  if(mag>0.12){ const sp=3.4*f; [player.x,player.y]=resolveMove(player.x,player.y,mdx/mag*sp,mdy/mag*sp,player.r); }
+  if(mag>0.12){
+    const sp=(player.veh ? (player.veh.type==='camion'?7.5:9.5) : 4.8)*f;
+    [player.x,player.y]=resolveMove(player.x,player.y,mdx/mag*sp,mdy/mag*sp,player.r);
+  }
+  // cámara sigue al jugador (mundo infinito) y se recicla el terreno/vehículos
+  camX=player.x; camY=player.y;
+  recycleObstacles(); recycleVehicles();
 
   // apuntado + disparo. Si no apuntas manualmente, dispara solo al mas cercano.
   if(aim.active){ player.ang=aim.ang; shoot(now); }
@@ -553,7 +612,7 @@ function update(now, dt){
   // balas jugador
   for(const b of bullets){
     b.x+=b.vx*f; b.y+=b.vy*f;
-    if(b.x<-30||b.x>W+30||b.y<-30||b.y>H+30){ b.dead=true; continue; }
+    if((b.x-player.x)**2+(b.y-player.y)**2>cull2){ b.dead=true; continue; }
     if(hitsObstacle(b.x,b.y,b.r)){ b.dead=true; continue; }
     for(const e of enemies){
       if(e.dead||b.hit.has(e)) continue;
@@ -566,7 +625,7 @@ function update(now, dt){
   // granadas
   for(const g of grenades){
     g.x+=g.vx*f; g.y+=g.vy*f; g.vx*=0.985; g.vy*=0.985; g.fuse-=f;
-    if(g.fuse<=0 || g.x<0||g.x>W||g.y<0||g.y>H || hitsObstacle(g.x,g.y,7)){ g.dead=true; explode(g); continue; }
+    if(g.fuse<=0 || hitsObstacle(g.x,g.y,7)){ g.dead=true; explode(g); continue; }
     for(const e of enemies){ if(!e.dead && dist2(g.x,g.y,e.x,e.y)<(e.r+7)*(e.r+7)){ g.dead=true; explode(g); break; } }
   }
   // enemigos (persiguen al amigo más cercano: tú o tus compañeros)
@@ -576,16 +635,26 @@ function update(now, dt){
     const a=Math.atan2(tgt.y-e.y,tgt.x-e.x);
     const d=Math.hypot(tgt.x-e.x,tgt.y-e.y);
     e.ang=a;
-    if(e.shooter){
+    if(e.fly){
+      // aviones: vuelan recto por encima de todo (ignoran obstáculos) y disparan
+      e.x+=Math.cos(a)*e.spd*f; e.y+=Math.sin(a)*e.spd*f;
+      if(now-e.lastShot>900 && d<540){
+        e.lastShot=now;
+        ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*7,vy:Math.sin(a)*7,r:5,dmg:12,color:'#ff8c2b'});
+        spawnFlash(e.x+Math.cos(a)*e.r,e.y+Math.sin(a)*e.r,a,0.9,'#ffb04a');
+      }
+    } else if(e.shooter){
       if(d>280) stepEnemy(e, a, e.spd, f);
       else if(d<210) stepEnemy(e, a+Math.PI, e.spd, f);
-      const rate=e.boss?1050:1300;
+      const rate=e.boss?1050:(e.shell?1700:1300);
       if(now-e.lastShot>rate){
         e.lastShot=now;
         if(e.boss){ for(let k=-2;k<=2;k++){ const aa=a+k*0.21; ebullets.push({x:e.x,y:e.y,vx:Math.cos(aa)*6,vy:Math.sin(aa)*6,r:6,dmg:14,color:'#ff2e88'});} }
+        else if(e.shell){ ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*5,vy:Math.sin(a)*5,r:9,dmg:26,color:'#c9d24a'}); addShake(3); }
         else ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*6,vy:Math.sin(a)*6,r:5,dmg:12,color:'#ff8c2b'});
-        const [fx,fy]=muzzlePos(e.x,e.y,a,e.r,ENEMY_PAL[e.kind].gun);
-        spawnFlash(fx,fy,a, e.boss?1.7:0.85, e.boss?'#ff2e88':'#ffb04a');
+        const gunT = e.veh==='tanque' ? 'Fusil' : (ENEMY_PAL[e.kind] ? ENEMY_PAL[e.kind].gun : 'Rifle');
+        const [fx,fy]=muzzlePos(e.x,e.y,a,e.r,gunT);
+        spawnFlash(fx,fy,a, e.boss?1.7:(e.shell?1.6:0.85), e.boss?'#ff2e88':(e.shell?'#c9d24a':'#ffb04a'));
       }
     } else {
       stepEnemy(e, a, e.spd, f);
@@ -593,7 +662,8 @@ function update(now, dt){
     // contacto con cualquier amigo cercano
     for(const fr of friendlies()){
       if(dist2(fr.x,fr.y,e.x,e.y) < (e.r+fr.r)*(e.r+fr.r) && (!e.shooter||e.boss)){
-        fr.hp-=e.dmg*0.05*f;
+        if(fr===player && player.veh){ hurt(e, 3.5*f, e.x, e.y); }   // ¡atropello con el coche!
+        else fr.hp-=e.dmg*0.05*f;
         const pa=Math.atan2(e.y-fr.y,e.x-fr.x); e.x+=Math.cos(pa)*2; e.y+=Math.sin(pa)*2;
       }
     }
@@ -620,7 +690,7 @@ function update(now, dt){
   // balas enemigas (dañan a cualquier amigo)
   for(const b of ebullets){
     b.x+=b.vx*f; b.y+=b.vy*f;
-    if(b.x<-30||b.x>W+30||b.y<-30||b.y>H+30){ b.dead=true; continue; }
+    if((b.x-player.x)**2+(b.y-player.y)**2>cull2){ b.dead=true; continue; }
     if(hitsObstacle(b.x,b.y,b.r)){ b.dead=true; continue; }
     for(const fr of friendlies()){
       if(dist2(b.x,b.y,fr.x,fr.y)<(fr.r+b.r)*(fr.r+b.r)){
@@ -694,11 +764,12 @@ function drawCover(o){
   }
 }
 function drawGrid(){
-  ctx.fillStyle='#0a0e14'; ctx.fillRect(-16,-16,W+32,H+32);
+  const x0=camX-W/2-40, x1=camX+W/2+40, y0=camY-H/2-40, y1=camY+H/2+40;
+  ctx.fillStyle='#0a0e14'; ctx.fillRect(x0,y0,x1-x0,y1-y0);
   ctx.strokeStyle='#151d2c'; ctx.lineWidth=1; ctx.beginPath();
   const step=42;
-  for(let x=-16;x<=W+16;x+=step){ ctx.moveTo(x,-16); ctx.lineTo(x,H+16); }
-  for(let y=-16;y<=H+16;y+=step){ ctx.moveTo(-16,y); ctx.lineTo(W+16,y); }
+  for(let x=Math.floor(x0/step)*step; x<=x1; x+=step){ ctx.moveTo(x,y0); ctx.lineTo(x,y1); }
+  for(let y=Math.floor(y0/step)*step; y<=y1; y+=step){ ctx.moveTo(x0,y); ctx.lineTo(x1,y); }
   ctx.stroke();
 }
 function drawEntityCircle(x,y,r,color,ring){
@@ -757,6 +828,43 @@ function drawHuman(x,y,ang,r,pal,gun){
   ctx.beginPath(); ctx.arc(s*0.46, 0, s*0.33, 0, TAU); ctx.fill(); ctx.stroke();            // cara
   ctx.restore();
 }
+// dibuja un vehículo visto desde arriba: coche, camión, tanque o avión
+function drawVehicle(x,y,ang,type,color,r){
+  const s=r;
+  ctx.save(); ctx.translate(x,y);
+  ctx.fillStyle='rgba(0,0,0,.32)';
+  ctx.beginPath(); ctx.ellipse(0,0, s*1.5, s*1.0, 0, 0, TAU); ctx.fill();
+  ctx.rotate(ang);
+  ctx.strokeStyle='rgba(0,0,0,.5)'; ctx.lineWidth=2;
+  if(type==='coche'){
+    ctx.fillStyle='#111';
+    rrfill(-s*0.7,-s*0.7,s*0.5,s*0.3,3); rrfill(-s*0.7,s*0.4,s*0.5,s*0.3,3);
+    rrfill(s*0.3,-s*0.7,s*0.5,s*0.3,3); rrfill(s*0.3,s*0.4,s*0.5,s*0.3,3);
+    ctx.fillStyle=color; rrfill(-s*1.0,-s*0.55,s*2.0,s*1.1,s*0.35); ctx.stroke();
+    ctx.fillStyle='#0a2a3a'; rrfill(s*0.05,-s*0.4,s*0.55,s*0.8,s*0.16);
+    ctx.fillStyle='rgba(255,255,255,.14)'; rrfill(-s*0.9,-s*0.42,s*0.42,s*0.84,s*0.2);
+  } else if(type==='camion'){
+    ctx.fillStyle='#111';
+    for(const wx of [-0.8,-0.15,0.55]){ rrfill(s*wx,-s*0.72,s*0.4,s*0.26,3); rrfill(s*wx,s*0.46,s*0.4,s*0.26,3); }
+    ctx.fillStyle=color; rrfill(-s*1.15,-s*0.6,s*1.55,s*1.2,s*0.12); ctx.stroke();
+    ctx.fillStyle='#3a4655'; rrfill(s*0.4,-s*0.55,s*0.72,s*1.1,s*0.15); ctx.stroke();
+    ctx.fillStyle='#0a2a3a'; rrfill(s*0.72,-s*0.36,s*0.3,s*0.72,s*0.1);
+  } else if(type==='tanque'){
+    ctx.fillStyle='#242a1e';
+    rrfill(-s*1.0,-s*0.8,s*2.0,s*0.34,4); rrfill(-s*1.0,s*0.46,s*2.0,s*0.34,4);
+    ctx.fillStyle=color; rrfill(-s*0.9,-s*0.52,s*1.8,s*1.04,s*0.14); ctx.stroke();
+    ctx.fillStyle='#3a4630'; rrfill(s*0.2,-s*0.11,s*1.5,s*0.22,2);            // cañón
+    ctx.fillStyle='#4c5a36'; ctx.beginPath(); ctx.arc(0,0,s*0.5,0,TAU); ctx.fill(); ctx.stroke();
+  } else { // avión
+    ctx.fillStyle=color;
+    rrfill(-s*0.15,-s*1.15,s*0.55,s*2.3,s*0.1); ctx.stroke();                // alas
+    rrfill(-s*1.0,-s*0.5,s*0.32,s*1.0,s*0.1); ctx.stroke();                  // cola
+    ctx.beginPath(); ctx.moveTo(s*1.3,0); ctx.lineTo(-s*0.95,-s*0.3); ctx.lineTo(-s*0.95,s*0.3); ctx.closePath();
+    ctx.fillStyle=color; ctx.fill(); ctx.stroke();                          // fuselaje
+    ctx.fillStyle='#0a2a3a'; ctx.beginPath(); ctx.arc(s*0.45,0,s*0.24,0,TAU); ctx.fill();
+  }
+  ctx.restore();
+}
 // longitud del cañón por arma (para colocar el destello en la punta)
 function gunLen(s,gun){
   if(gun==='Escopeta')return s*1.55;
@@ -795,7 +903,7 @@ function drawFlashes(){
 function draw(now){
   let ox=0, oy=0;
   if(shakeAmt>0){ ox=(Math.random()*2-1)*shakeAmt; oy=(Math.random()*2-1)*shakeAmt; }
-  ctx.save(); ctx.translate(ox,oy);
+  ctx.save(); ctx.translate(W/2 - camX + ox, H/2 - camY + oy);   // cámara + temblor
   drawGrid();
   // escondites (casas, árboles, rocas, montañas)
   for(const o of obstacles) drawCover(o);
@@ -822,14 +930,17 @@ function draw(now){
   // granadas
   for(const g of grenades){ const bl=(Math.floor(g.fuse/5)%2===0&&g.fuse<24)?'#ffdc3c':'#46dc78';
     drawEntityCircle(g.x,g.y,7,bl,'#0a0e14'); }
-  // enemigos (soldados con arma)
+  // vehículos aparcados (coches para huir)
+  for(const v of vehicles) drawVehicle(v.x, v.y, v.ang, v.type, v.type==='camion'?'#c8b45a':'#e05a5a', v.r);
+  // enemigos (soldados y máquinas de guerra)
   for(const e of enemies){
     if(e.boss){
       const pulse = e.r*1.5 + Math.sin(now/160)*5;
       ctx.beginPath(); ctx.arc(e.x,e.y,pulse,0,TAU);
       ctx.fillStyle='rgba(255,46,136,.14)'; ctx.fill();
     }
-    drawHuman(e.x, e.y, e.ang||0, e.r, ENEMY_PAL[e.kind], ENEMY_PAL[e.kind].gun);
+    if(e.veh) drawVehicle(e.x, e.y, e.ang||0, e.veh, e.color, e.r);
+    else drawHuman(e.x, e.y, e.ang||0, e.r, ENEMY_PAL[e.kind], ENEMY_PAL[e.kind].gun);
     // barra vida
     if(e.hp<e.maxhp){ const w=e.boss?220:e.r*2.2, bx=e.x-w/2, by=e.y-e.r*1.5-(e.boss?18:10);
       ctx.fillStyle='#3a1420'; ctx.fillRect(bx,by,w,e.boss?8:5);
@@ -846,7 +957,8 @@ function draw(now){
   // jugador
   if(state==='playing'||state==='paused'){
     const p=player;
-    drawHuman(p.x, p.y, p.ang, p.r, PLAYER_PAL, WEAPONS[p.wi].name);
+    if(p.veh) drawVehicle(p.x, p.y, p.ang, p.veh.type, '#3fd47a', p.veh.r);
+    else drawHuman(p.x, p.y, p.ang, p.r, PLAYER_PAL, WEAPONS[p.wi].name);
     // buffs activos (texto)
     let by=p.y-p.r*1.6-6;
     for(const k in p.buffs){ if(p.buffs[k]>now){ ctx.fillStyle=BUFFS[k].color;
