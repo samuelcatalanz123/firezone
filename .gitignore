@@ -1,3 +1,2 @@
-venv/
-*.png
 node_modules/
+venv/

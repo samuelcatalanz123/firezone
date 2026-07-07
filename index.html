@@ -5,7 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="FIRE ZONE">
 <meta name="theme-color" content="#0a0e14">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<link rel="icon" type="image/png" href="./icon-192.png">
 <title>FIRE ZONE — de Samuel</title>
 </head>
 <body>
@@ -126,7 +130,9 @@
       <b>PC:</b> muévete con <b>WASD</b> o flechas.<br>
       Botones a la derecha: cambiar arma 🔫 y lanzar granada 💣.
     </div>
-    <div class="row"><span class="chip">📲 Añádela a tu pantalla de inicio para jugar como una app</span></div>
+    <button class="cta" id="installBtn" style="margin-top:12px;background:linear-gradient(180deg,#6ad0ff,#2a86ff);color:#04121f;">📲 Instalar app</button>
+    <div class="help" style="margin-top:10px;word-break:break-all;">Tu juego:
+      <b style="color:#8ad0ff">samuelcatalanz123.github.io/firezone</b></div>
   </div>
 
   <!-- Pausa -->
@@ -486,6 +492,15 @@ $('muteBtn').onclick=()=>{ muted=!muted; $('muteBtn').textContent=muted?'🔇':'
 $('weaponBtn').onclick=()=>{ if(state!=='playing')return;
   player.wi=(player.wi+1)%WEAPONS.length; $('wname').textContent=WEAPONS[player.wi].name; };
 $('nadeBtn').onclick=()=>{ if(state==='playing') throwNade(performance.now()); };
+// instalar como app (PWA)
+let deferredPrompt=null;
+addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredPrompt=e; });
+const ib=$('installBtn');
+if(ib) ib.addEventListener('click', async (ev)=>{ ev.stopPropagation();
+  if(deferredPrompt){ deferredPrompt.prompt(); try{ await deferredPrompt.userChoice; }catch(_){}
+    deferredPrompt=null; }
+  else { alert('Para instalar tu juego como app:\n\niPhone (Safari): toca Compartir (cuadro con flecha) y luego "Añadir a pantalla de inicio".\n\nAndroid (Chrome): menu de los 3 puntos y luego "Instalar aplicacion".'); }
+});
 
 function startGame(){ ac()&&ac().resume&&ac().resume(); newGame(); state='playing';
   $('menu').classList.add('hide'); $('over').classList.add('hide'); $('pause').classList.add('hide');
@@ -870,5 +885,10 @@ resize();
 requestAnimationFrame(frame);
 </script>
 
+<script>
+if('serviceWorker' in navigator){
+  addEventListener('load', function(){ navigator.serviceWorker.register('./sw.js').catch(function(){}); });
+}
+</script>
 </body>
 </html>
